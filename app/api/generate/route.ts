@@ -27,7 +27,7 @@ export async function POST(request: Request) {
       typeof body.excluded === "string" && body.excluded.trim() ? "Avoid: " + body.excluded.slice(0, 300) : ""].filter(Boolean).join(". "),
     lyrics: body.instrumental === true ? "[Instrumental]" : lyrics,
     instrumental: body.instrumental === true,
-    duration,
+    audio_duration: duration,
     title,
     genre: typeof body.genre === "string" ? body.genre : "Other",
     vocal_type: typeof body.voice === "string" ? body.voice : "Auto",
@@ -41,6 +41,16 @@ export async function POST(request: Request) {
   if (jobError || !job) {
     await supabase.from("beatforge_projects").delete().eq("id", project.id);
     return NextResponse.json({ error: jobError?.message || "Could not queue generation." }, { status: 500 });
+  }
+  const workerUrl = process.env.BEATFORGE_WORKER_URL?.replace(/\/$/, "");
+  const workerKey = process.env.BEATFORGE_WORKER_API_KEY;
+  if (workerUrl && workerKey) {
+    void fetch(workerUrl + "/jobs/wake", {
+      method: "POST",
+      headers: { "x-worker-key": workerKey },
+      cache: "no-store",
+      signal: AbortSignal.timeout(10000),
+    }).catch(() => undefined);
   }
   return NextResponse.json({ jobId: job.id, projectId: project.id, projectName: project.name });
 }
