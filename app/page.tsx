@@ -1,2 +1,2 @@
-import MusicStudio from "@/components/music-studio";
-export default function Home(){return <MusicStudio/>;}
+import SongGenerator from "@/components/song-generator";
+export default function Home(){return <SongGenerator/>;}
