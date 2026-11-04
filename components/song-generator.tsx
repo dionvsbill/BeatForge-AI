@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { AudioWaveform, WandSparkles, Music2, Mic2, SlidersHorizontal, Sparkles, Clock3, Headphones, Library, ArrowLeft, ChevronDown, Info, Play, Download, Plus, Check, LoaderCircle } from "lucide-react";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
