@@ -18,7 +18,7 @@ def process(job):
     if not asset: raise RuntimeError("Input audio asset was not found")
     work=Path(tempfile.mkdtemp(prefix="beatforge-")); source=work/"source_audio"
     source.write_bytes(client.storage.from_(BUCKET).download(asset["storage_path"]))
-    client.table("beatforge_jobs").update({"status":"running","progress":5,"stage":"Preparing audio","started_at":"now()"}).eq("id",job_id).execute()
+    client.table("beatforge_jobs").update({"status":"running","progress":5,"stage":"Preparing audio","started_at":__import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()}).eq("id",job_id).execute()
     outputs=[]
     if job_type in ("analysis","separation","transcription","reconstruction","render"):
         import librosa
@@ -47,13 +47,13 @@ def process(job):
         from basic_pitch.inference import predict
         from basic_pitch import ICASSP_2022_MODEL_PATH
         model_output=predict(str(source),ICASSP_2022_MODEL_PATH)
-        midi_data=model_output[2]
+        midi_data=model_output[1]
         midi_path=work/"transcription.mid";midi_data.write(str(midi_path))
         midi_storage=f"{owner_id}/{project_id}/midi/transcription-{int(time.time())}.mid"
         client.storage.from_(BUCKET).upload(midi_storage,midi_path.read_bytes(),{"content-type":"audio/midi","upsert":"true"})
         client.table("beatforge_assets").insert({"project_id":project_id,"owner_id":owner_id,"asset_type":"midi","storage_path":midi_storage,"original_name":"Transcription.mid","mime_type":"audio/midi","size_bytes":midi_path.stat().st_size,"metadata":{"model":"Spotify Basic Pitch","note_confidence_review":"Basic Pitch outputs note events; it does not guarantee instrument identity or perfect polyphonic separation."}}).execute()
         outputs.append({"kind":"midi","storage_path":midi_storage,"model":"Basic Pitch"})
-    client.table("beatforge_jobs").update({"status":"succeeded","progress":100,"stage":"Complete","output":{"results":outputs},"finished_at":"now()"}).eq("id",job_id).execute()
+    client.table("beatforge_jobs").update({"status":"succeeded","progress":100,"stage":"Complete","output":{"results":outputs},"finished_at":__import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()}).eq("id",job_id).execute()
 def worker_loop():
     while not stop_event.is_set():
         try:
