@@ -72,7 +72,7 @@ def analyze_audio(source: Path, project_id: str) -> dict[str, Any]:
             "duration_seconds": round(duration, 3), "sample_rate": sr}
 
 
-def separate_audio(source: Path, work: Path, owner_id: str, project_id: str) -> list[tuple[str, Path]]:
+def separate_audio(source: Path, work: Path, owner_id: str, project_id: str, source_asset_id: str) -> list[tuple[str, Path]]:
     update_for_stage = {"progress": 18, "stage": "Separating source classes with Demucs"}
     # The caller owns the job ID; progress is updated there.
     out = work / "stems"
@@ -94,7 +94,7 @@ def separate_audio(source: Path, work: Path, owner_id: str, project_id: str) -> 
             "project_id": project_id, "owner_id": owner_id, "asset_type": "stem_audio",
             "storage_path": storage_path, "original_name": stem.name,
             "mime_type": "audio/wav", "size_bytes": stem.stat().st_size,
-            "metadata": {"model": model, "source": "Demucs"},
+            "metadata": {"model": model, "source": "Demucs", "source_asset_id": source_asset_id},
         }).execute()
         results.append((label, stem))
     if not results:
@@ -214,7 +214,7 @@ def process(job: dict[str, Any]) -> None:
         outputs.append(analyze_audio(source, project_id))
     if job_type in ("separation", "reconstruction"):
         update_job(job_id, progress=20, stage="Separating instruments")
-        stems = separate_audio(source, work, owner_id, project_id)
+        stems = separate_audio(source, work, owner_id, project_id, asset["id"])
         outputs.extend({"kind": "stem", "name": label, "file": path.name} for label, path in stems)
     if job_type in ("transcription", "reconstruction"):
         update_job(job_id, progress=52, stage="Preparing transcription sources")
