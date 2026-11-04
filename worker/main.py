@@ -73,8 +73,6 @@ def analyze_audio(source: Path, project_id: str) -> dict[str, Any]:
 
 
 def separate_audio(source: Path, work: Path, owner_id: str, project_id: str, source_asset_id: str) -> list[tuple[str, Path]]:
-    update_for_stage = {"progress": 18, "stage": "Separating source classes with Demucs"}
-    # The caller owns the job ID; progress is updated there.
     out = work / "stems"
     out.mkdir(exist_ok=True)
     model = os.getenv("DEMUCS_MODEL", "htdemucs_6s")
@@ -220,7 +218,7 @@ def process(job: dict[str, Any]) -> None:
         update_job(job_id, progress=52, stage="Preparing transcription sources")
         stem_rows = client.table("beatforge_assets").select("*").eq(
             "project_id", project_id
-        ).eq("owner_id", owner_id).eq("asset_type", "stem_audio").order(
+        ).eq("owner_id", owner_id).eq("asset_type", "stem_audio").contains("metadata", {"source_asset_id": asset["id"]}).order(
             "created_at", desc=True
         ).execute().data or []
         sources: list[tuple[str, Path]] = []
