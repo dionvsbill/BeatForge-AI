@@ -127,7 +127,7 @@ def transcribe_sources(
 
     outputs: list[dict[str, Any]] = []
     for index, (label, audio_file) in enumerate(sources):
-        model_output, midi_data, _note_events = predict(
+        _model_output, midi_data, _note_events = predict(
             str(audio_file), ICASSP_2022_MODEL_PATH,
             onset_threshold=0.55, frame_threshold=0.35,
             minimum_note_length=90.0, minimum_frequency=27.5,
@@ -142,7 +142,6 @@ def transcribe_sources(
         notes: list[dict[str, Any]] = []
         for instrument in midi_data.instruments:
             for note in instrument.notes:
-                # One quarter note is four editor steps; editor steps are sixteenth notes.
                 start = max(0, round(note.start * bpm * 4 / 60))
                 end = max(start + 1, round(note.end * bpm * 4 / 60))
                 notes.append({
@@ -187,8 +186,6 @@ def transcribe_sources(
         }).execute()
         outputs.append({"kind": "midi", "source": label, "storage_path": storage_path,
                         "notes": len(notes), "model": "Basic Pitch"})
-        update_job_for_progress = min(94, 55 + int(39 * (index + 1) / max(1, len(sources))))
-        # The caller updates the current job progress after each source.
     return outputs
 
 
@@ -203,7 +200,9 @@ def process(job: dict[str, Any]) -> None:
     if not asset:
         raise RuntimeError("Input audio asset was not found")
     work = Path(tempfile.mkdtemp(prefix="beatforge-"))
-    source_name = Path(asset.get("original_name") or "source.wav").name\n    source_suffix = Path(source_name).suffix or ".wav"\n    source = download_asset(asset["storage_path"], work / ("source_audio" + source_suffix))
+    source_name = Path(asset.get("original_name") or "source.wav").name
+    source_suffix = Path(source_name).suffix or ".wav"
+    source = download_asset(asset["storage_path"], work / ("source_audio" + source_suffix))
     outputs: list[dict[str, Any]] = []
     if job_type == "render":
         raise RuntimeError("Audio rendering is not enabled yet; export MIDI from the studio.")
@@ -218,9 +217,9 @@ def process(job: dict[str, Any]) -> None:
         update_job(job_id, progress=52, stage="Preparing transcription sources")
         stem_rows = client.table("beatforge_assets").select("*").eq(
             "project_id", project_id
-        ).eq("owner_id", owner_id).eq("asset_type", "stem_audio").contains("metadata", {"source_asset_id": asset["id"]}).order(
-            "created_at", desc=True
-        ).execute().data or []
+        ).eq("owner_id", owner_id).eq("asset_type", "stem_audio").contains(
+            "metadata", {"source_asset_id": asset["id"]}
+        ).order("created_at", desc=True).execute().data or []
         sources: list[tuple[str, Path]] = []
         if stem_rows:
             seen: set[str] = set()
