@@ -205,7 +205,7 @@ def process(job: dict[str, Any]) -> None:
     if not asset:
         raise RuntimeError("Input audio asset was not found")
     work = Path(tempfile.mkdtemp(prefix="beatforge-"))
-    source = download_asset(asset["storage_path"], work / "source_audio")
+    source_name = Path(asset.get("original_name") or "source.wav").name\n    source_suffix = Path(source_name).suffix or ".wav"\n    source = download_asset(asset["storage_path"], work / ("source_audio" + source_suffix))
     outputs: list[dict[str, Any]] = []
     if job_type == "render":
         raise RuntimeError("Audio rendering is not enabled yet; export MIDI from the studio.")
