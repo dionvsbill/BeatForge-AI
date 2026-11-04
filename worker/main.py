@@ -84,6 +84,7 @@ def worker_loop():
         try:
             if client:
                 claimed=client.rpc("beatforge_claim_next_job").execute().data
+                if isinstance(claimed,list): claimed=claimed[0] if claimed else None
                 if claimed:
                     try: process(claimed)
                     except Exception as exc:
