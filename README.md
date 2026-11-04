@@ -1,24 +1,56 @@
 # BeatForge AI
 
-Standalone music-production application sharing the existing BuilderOS Supabase project `builder` (project ref `gbqviddfwdgyiqueaaev`). All application records use dedicated `beatforge_*` tables and the private `beatforge-media` storage bucket.
+Standalone browser-based music workspace sharing the existing BuilderOS Supabase project `builder` (project ref `gbqviddfwdgyiqueaaev`). BeatForge records use dedicated `beatforge_*` tables and the private `beatforge-media` bucket; BuilderOS tables are not modified.
 
-## Web app
-- Next.js 14 App Router, TypeScript, Tailwind
-- Supabase Auth, Postgres and private Storage
-- Projects and MIDI tracks persist to Supabase
-- Piano-roll editor supports note insertion, movement, pitch/length/velocity editing and MIDI export; a 16-step drum pattern editor and per-track volume/pan mixer are included
-- Source audio upload and signed playback URLs
+## Implemented in this repository
 
-Run `npm install && npm run dev` after copying `.env.example` to `.env.local` and adding the Supabase publishable key.
+- Next.js 14 App Router, TypeScript, Tailwind, Supabase Auth/Postgres/private Storage.
+- User projects and editable multitrack MIDI sessions.
+- Import MIDI files into separate editable tracks; edit pitch, timing, duration and velocity in the piano roll; export one track or a complete MIDI file.
+- Tone.js MIDI playback transport.
+- A 16-step drum pattern editor that converts the pattern to editable MIDI notes.
+- Track volume/pan controls and an offline stereo PCM WAV renderer for the MIDI/synth tracks.
+- Secure source-audio upload and signed playback URLs.
+- AI job queue and a separate Python worker.
+- Librosa tempo/key/duration analysis, Demucs source separation, and Basic Pitch polyphonic transcription of separated stems or the full mix.
+- Generated stem audio can be previewed in the project. AI-created MIDI tracks are loaded back into the piano roll after the job completes.
 
-## AI worker
-The separate Python worker polls the durable Supabase queue using a service-role credential. It currently supports librosa tempo/key analysis, Demucs `htdemucs_6s` source-class separation and Spotify Basic Pitch polyphonic MIDI transcription, including per-stem MIDI track creation when stems already exist in the project. Run in `worker/` with `pip install -r requirements.txt && uvicorn main:app --host 0.0.0.0 --port 8000`.
+## Web app setup
 
-Deploy the web app and worker separately. The worker needs `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `BEATFORGE_STORAGE_BUCKET`, and optionally `DEMUCS_MODEL`. Do not expose the service-role key in browser variables. First model download can take time and several GB of disk; GPU is strongly recommended for larger recordings.
+Copy `.env.example` to `.env.local` and set the Supabase URL and publishable key. Never expose `SUPABASE_SERVICE_ROLE_KEY` in a `NEXT_PUBLIC_*` variable.
 
-## Important model limits
-No current model can guarantee perfect recognition of every instrument in every recording. The stem model estimates a fixed set of source classes (including vocals, drums, bass, guitar, piano and other); Basic Pitch creates polyphonic note events but does not reliably label every note with its original instrument. Dense mixes, effects, reverb, unusual timbres and overlapping parts need human review. The editor preserves MIDI as editable notes rather than pretending uncertain AI guesses are ground truth.
+```bash
+npm install
+npm run typecheck
+npm run build
+npm run dev
+```
 
-## Render
-Web service: build `npm install && npm run build`; start `npm start`; Node 20.10–24.
-Worker: separate Python service with working directory `worker`, build `pip install -r requirements.txt`, start `uvicorn main:app --host 0.0.0.0 --port $PORT`. Keep worker on a persistent instance with sufficient memory and disk.
+## AI worker setup
+
+Deploy the worker separately from the Next.js app. It needs a persistent Python service, sufficient disk for model downloads and preferably GPU acceleration for long recordings.
+
+```bash
+cd worker
+pip install -r requirements.txt
+uvicorn main:app --host 0.0.0.0 --port 8000
+```
+
+Required worker environment variables:
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY` (server-side only)
+- `BEATFORGE_WORKER_API_KEY`
+- `BEATFORGE_STORAGE_BUCKET=beatforge-media`
+- Optional `DEMUCS_MODEL=htdemucs_6s`
+
+Render worker build command: `pip install -r requirements.txt`. Start command: `uvicorn main:app --host 0.0.0.0 --port $PORT`. Use a persistent instance with adequate memory and disk.
+
+## AI accuracy and audio rendering limitations
+
+No current model guarantees exact recognition of every instrument or every note in an arbitrary mixed recording. Demucs separates a fixed set of estimated source classes; Basic Pitch is a polyphonic note transcriber, not a universal instrument-identification system. Dense mixes, drums, effects, reverb, delay, overlapping notes and unusual timbres still need human review. The worker applies conservative thresholds and merges near-overlapping same-pitch detections, but this cannot reliably remove every echo or recover every missing/ambiguous note.
+
+The current WAV export is an offline built-in synthesizer render of editable MIDI tracks. It is not yet a full sample-library instrument engine and does not mix the uploaded source audio or separated stems into the rendered WAV. Advanced audio editing, commercial-grade instrument libraries, full effect chains, automation, and a production GPU worker deployment remain future work.
+
+## Security and data
+
+The worker uses a restricted service-role credential only on the server. Authenticated users can access their own project records and their own object paths in the private bucket. AI jobs are claimed through a SECURITY DEFINER queue function restricted to `service_role`. Keep credentials in Render environment settings, not in Git.
