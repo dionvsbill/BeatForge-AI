@@ -43,16 +43,41 @@ def process(job):
             client.table("beatforge_assets").insert({"project_id":project_id,"owner_id":owner_id,"asset_type":"stem_audio","storage_path":path,"original_name":stem.name,"mime_type":"audio/wav","size_bytes":stem.stat().st_size}).execute()
             outputs.append({"kind":"stem","name":stem.stem,"storage_path":path})
     if job_type in ("transcription","reconstruction"):
-        client.table("beatforge_jobs").update({"progress":55,"stage":"Transcribing notes (polyphonic model)"}).eq("id",job_id).execute()
+        client.table("beatforge_jobs").update({"progress":55,"stage":"Transcribing audio and separated stems"}).eq("id",job_id).execute()
         from basic_pitch.inference import predict
         from basic_pitch import ICASSP_2022_MODEL_PATH
-        model_output=predict(str(source),ICASSP_2022_MODEL_PATH)
-        midi_data=model_output[1]
-        midi_path=work/"transcription.mid";midi_data.write(str(midi_path))
-        midi_storage=f"{owner_id}/{project_id}/midi/transcription-{int(time.time())}.mid"
-        client.storage.from_(BUCKET).upload(midi_storage,midi_path.read_bytes(),{"content-type":"audio/midi","upsert":"true"})
-        client.table("beatforge_assets").insert({"project_id":project_id,"owner_id":owner_id,"asset_type":"midi","storage_path":midi_storage,"original_name":"Transcription.mid","mime_type":"audio/midi","size_bytes":midi_path.stat().st_size,"metadata":{"model":"Spotify Basic Pitch","note_confidence_review":"Basic Pitch outputs note events; it does not guarantee instrument identity or perfect polyphonic separation."}}).execute()
-        outputs.append({"kind":"midi","storage_path":midi_storage,"model":"Basic Pitch"})
+        stem_rows=client.table("beatforge_assets").select("*").eq("project_id",project_id).eq("owner_id",owner_id).eq("asset_type","stem_audio").order("created_at",desc=True).execute().data
+        sources=[]
+        if stem_rows:
+            seen=set()
+            for row in stem_rows:
+                label=(row.get("original_name") or "stem").replace(".wav","")
+                if label in seen: continue
+                seen.add(label)
+                stem_file=work/(label.replace("/","_")+".wav")
+                stem_file.write_bytes(client.storage.from_(BUCKET).download(row["storage_path"]))
+                sources.append((label,stem_file))
+        else:
+            sources=[("Full mix",source)]
+        project_row=client.table("beatforge_projects").select("bpm").eq("id",project_id).single().execute().data
+        tempo=max(30,float(project_row.get("bpm") or 120))
+        for index,(label,audio_file) in enumerate(sources):
+            model_output=predict(str(audio_file),ICASSP_2022_MODEL_PATH)
+            midi_data=model_output[1]
+            midi_path=work/("transcription-"+str(index)+".mid")
+            midi_data.write(str(midi_path))
+            midi_storage=f"{owner_id}/{project_id}/midi/{label.replace(' ','_')}-{int(time.time())}.mid"
+            client.storage.from_(BUCKET).upload(midi_storage,midi_path.read_bytes(),{"content-type":"audio/midi","upsert":"true"})
+            stem_kind=label.lower()
+            instrument="piano" if "piano" in stem_kind else "guitar" if "guitar" in stem_kind else "bass" if "bass" in stem_kind else "other"
+            notes=[]
+            for midi_instrument in midi_data.instruments:
+                for note in midi_instrument.notes:
+                    notes.append({"id":str(note.pitch)+"-"+str(int(note.start*1000)),"pitch":int(note.pitch),"start":max(0,round(note.start*tempo/15)),"duration":max(1,round((note.end-note.start)*tempo/15)),"velocity":round(note.velocity/127,3),"confidence":None})
+            client.table("beatforge_tracks").insert({"project_id":project_id,"owner_id":owner_id,"name":label+" · MIDI","instrument":instrument,"track_type":"midi","position":index+10,"midi_data":notes,"metadata":{"source":"Basic Pitch","source_asset":label,"confidence":"Review note events manually"}}).execute()
+            client.table("beatforge_assets").insert({"project_id":project_id,"owner_id":owner_id,"asset_type":"midi","storage_path":midi_storage,"original_name":label+"-transcription.mid","mime_type":"audio/midi","size_bytes":midi_path.stat().st_size,"metadata":{"model":"Spotify Basic Pitch","source_stem":label}}).execute()
+            outputs.append({"kind":"midi","source":label,"storage_path":midi_storage,"notes":len(notes),"model":"Basic Pitch"})
+            client.table("beatforge_jobs").update({"progress":min(95,55+int(40*(index+1)/len(sources))),"stage":"Transcribed "+label}).eq("id",job_id).execute()
     client.table("beatforge_jobs").update({"status":"succeeded","progress":100,"stage":"Complete","output":{"results":outputs},"finished_at":__import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()}).eq("id",job_id).execute()
 def worker_loop():
     while not stop_event.is_set():
