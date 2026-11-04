@@ -16,6 +16,16 @@ from supabase import Client, create_client
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# CPU-first inference is the default so the worker can run without a rented GPU.
+# Set BEATFORGE_DEVICE=cuda only on a host with a compatible NVIDIA runtime.
+DEVICE = os.getenv("BEATFORGE_DEVICE", "cpu").strip().lower()
+if DEVICE == "cpu":
+    os.environ.setdefault("CUDA_VISIBLE_DEVICES", "-1")
+    os.environ.setdefault("OMP_NUM_THREADS", os.getenv("BEATFORGE_CPU_THREADS", "2"))
+    os.environ.setdefault("TF_NUM_INTRAOP_THREADS", os.getenv("BEATFORGE_CPU_THREADS", "2"))
+    os.environ.setdefault("TF_NUM_INTEROP_THREADS", "1")
+
 app = FastAPI(title="BeatForge AI Processing Worker", version="0.4.0")
 API_KEY = os.getenv("BEATFORGE_WORKER_API_KEY", "")
 SUPABASE_URL = os.getenv("SUPABASE_URL") or os.getenv("NEXT_PUBLIC_SUPABASE_URL")
@@ -157,8 +167,8 @@ def analyze_audio(source: Path, project_id: str) -> dict[str, Any]:
 def separate_audio(source: Path, work: Path, owner_id: str, project_id: str, source_asset_id: str) -> list[tuple[str, Path]]:
     out = work / "stems"
     out.mkdir(exist_ok=True)
-    model = os.getenv("DEMUCS_MODEL", "htdemucs_6s")
-    subprocess.run(["python", "-m", "demucs", "-n", model, "-o", str(out), str(source)],
+    model = os.getenv("DEMUCS_MODEL", "htdemucs")
+    subprocess.run(["python", "-m", "demucs", "-n", model, "--device", DEVICE, "-o", str(out), str(source)],
                    check=True, timeout=14400)
     stem_dir = out / model / source.stem
     if not stem_dir.exists():
@@ -327,7 +337,9 @@ def stop_worker() -> None:
 @app.get("/health")
 def health() -> dict[str, Any]:
     return {"status": "ok", "service": "beatforge-worker", "supabase_configured": client is not None,
-            "worker_key_configured": bool(API_KEY), "acestep_configured": bool(ACE_STEP_API_URL)}
+            "worker_key_configured": bool(API_KEY), "acestep_configured": bool(ACE_STEP_API_URL),
+            "device": DEVICE, "demucs_model": os.getenv("DEMUCS_MODEL", "htdemucs"),
+            "generation_available": bool(ACE_STEP_API_URL)}
 
 
 @app.post("/jobs/wake")
